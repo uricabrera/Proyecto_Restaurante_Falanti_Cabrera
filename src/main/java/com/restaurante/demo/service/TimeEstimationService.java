@@ -25,25 +25,25 @@ public class TimeEstimationService {
         List<OrderItem> items = order.getItems(); // Conseguimos order items
         Map<Long, OrderItem> itemMap = new HashMap<>(); // HashMap con llave id y OrderItem como valor
         for (OrderItem item : items) {
-            // Solo contiene productos simples asi que es seguro
-            itemMap.put(item.getProduct().getId(), item); // Colocamos los items de la orden en un mapa con llave id del orden item y el item como valor
+            if (item.getProduct() != null && item.getProduct().getId() != null) {
+                itemMap.put(item.getProduct().getId(), item); 
+            }
         }
 
         // 1. Construir el grafo de dependencias
-        Map<OrderItem, List<OrderItem>> successors = new HashMap<>(); // Creamos un hashmap vacio de sucesores Un mapa que guardará para cada producto, una lista de los productos que dependen de él
-        Map<OrderItem, Integer> predecessorCount = new HashMap<>(); // Creamos un hashmap vacio de predecesores Un mapa que cuenta cuántos productos necesita cada producto antes de poder ser preparado
+        Map<OrderItem, List<OrderItem>> successors = new HashMap<>();
+        Map<OrderItem, Integer> predecessorCount = new HashMap<>();
         for (OrderItem item : items) {
-            successors.put(item, new ArrayList<>()); // Cada item puede tener una lista de sucesores
-            predecessorCount.put(item, 0); // Para cada item es necesario saber cuantos predecesores tiene
+            successors.put(item, new ArrayList<>());
+            predecessorCount.put(item, 0);
         }
 
         for (OrderItem item : items) {
             ProductComponent component = item.getProduct();
-            // Solo prerequisitos en productos hoja, no compuestos
             if (component instanceof Product) {
                 Product product = (Product) component;
-                if (product.getPrerequisiteProductId() != null) { // Si el prerequisito id no es nulo, entonces significa que nuestro item tiene predecesores
-                    OrderItem prerequisiteItem = itemMap.get(product.getPrerequisiteProductId()); // conseguimos los valores sucesores
+                if (product.getPrerequisiteProductId() != null) {
+                    OrderItem prerequisiteItem = itemMap.get(product.getPrerequisiteProductId());
                     if (prerequisiteItem != null) {
                         successors.get(prerequisiteItem).add(item);
                         predecessorCount.put(item, predecessorCount.get(item) + 1);
@@ -55,7 +55,7 @@ public class TimeEstimationService {
         // 2. Sorting topologico 
         Queue<OrderItem> queue = new LinkedList<>();
         for (OrderItem item : items) {
-            if (predecessorCount.get(item) == 0) { //Si no tiene ningun predecesor, aniadir a la queue
+            if (predecessorCount.get(item) == 0) {
                 queue.add(item);
             }
         }
@@ -67,17 +67,18 @@ public class TimeEstimationService {
             for (OrderItem successor : successors.get(current)) {
                 predecessorCount.put(successor, predecessorCount.get(successor) - 1);
                 if (predecessorCount.get(successor) == 0) {
-                    queue.add(successor); //Procedemos a aniadir el OrderItem sucesor con su respectivo valor de predecesor
+                    queue.add(successor);
                 }
             }
         }
 
         if (topologicalOrder.size() != items.size()) {
-            System.err.println("Ciclo detectado.No se puede calcular el tiempo estimado de orden");
-            return -1; // Indicar error
+            // This usually means a circular dependency in product prerequisites
+            System.err.println("Ciclo detectado o dependencias faltantes. Usando estimacion simple (SUM).");
+            return items.stream().mapToDouble(i -> i.getPreparationTime() * i.getQuantity()).sum();
         }
 
-        // 3. Forward Pass, una vez que tenemos los grafos creados, ahora podemos analizar el tiempo de estimacion de completado
+        // 3. Forward Pass
         double totalTime = 0;
         for (OrderItem item : topologicalOrder) {
             double maxPredFinishTime = 0;
@@ -92,8 +93,9 @@ public class TimeEstimationService {
                 }
             }
             item.setEarlyStart(maxPredFinishTime);
-            // El tiempo de preparacion ya esta cuando se crea la orden
-            item.setEarlyFinish(item.getEarlyStart() + item.getPreparationTime());
+            // Preparation time * quantity
+            double totalItemTime = item.getPreparationTime() * item.getQuantity();
+            item.setEarlyFinish(item.getEarlyStart() + totalItemTime);
             totalTime = Math.max(totalTime, item.getEarlyFinish());
         }
 
@@ -103,22 +105,23 @@ public class TimeEstimationService {
             double minSuccStartTime = totalTime;
             if (!successors.get(item).isEmpty()) {
                 minSuccStartTime = successors.get(item).stream()
-                                       .mapToDouble(OrderItem::getLateStart)
-                                       .min().orElse(totalTime);
+                                         .mapToDouble(OrderItem::getLateStart)
+                                         .min().orElse(totalTime);
             }
             item.setLateFinish(minSuccStartTime);
-            item.setLateStart(item.getLateFinish() - item.getPreparationTime());
+            double totalItemTime = item.getPreparationTime() * item.getQuantity();
+            item.setLateStart(item.getLateFinish() - totalItemTime);
         }
 
-        // 5. Realizamos una demostracion en consola de nuestro algoritmo
-        System.out.println("--- Analisis de camino critico ---");
+        // 5. Console Log Analysis
+        System.out.println("--- Analisis de camino critico (CPM) ---");
         System.out.println("Tiempo total estimado de la orden: " + totalTime + " minutos.");
         for (OrderItem item : topologicalOrder) {
             item.setSlack(item.getLateStart() - item.getEarlyStart());
             System.out.printf(
-                "Item: %-20s | PrepTime: %4.1f | ES: %4.1f | EF: %4.1f | LS: %4.1f | LF: %4.1f | Slack: %4.1f %s%n",
-                item.getProduct().getName(), item.getPreparationTime(), item.getEarlyStart(),
-                item.getEarlyFinish(), item.getLateStart(), item.getLateFinish(),
+                "Item: %-20s | Dur: %4.1f | ES: %4.1f | EF: %4.1f | Slack: %4.1f %s%n",
+                item.getProduct().getName(), (item.getPreparationTime() * item.getQuantity()), 
+                item.getEarlyStart(), item.getEarlyFinish(),
                 item.getSlack(), (item.getSlack() < 0.001) ? "<- CRITICAL" : ""
             );
         }

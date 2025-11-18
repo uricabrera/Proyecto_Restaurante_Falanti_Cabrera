@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -16,6 +17,11 @@ public class RecommendationService {
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
+    
+    // Simple Cache to avoid running Apriori on every click (Audit recommendation)
+    private final Map<Set<Long>, List<ProductComponent>> recommendationCache = new ConcurrentHashMap<>();
+    private long lastCacheUpdate = 0;
+    private static final long CACHE_TTL = 60000; // 1 minute cache
 
     @Autowired
     public RecommendationService(OrderRepository orderRepository, ProductRepository productRepository) {
@@ -24,9 +30,12 @@ public class RecommendationService {
     }
 
     public List<ProductComponent> generateRecommendations(Set<Long> currentItemIds, double minSupport, double minConfidence) {
-        // 
-        // Algoritmo Apriori,
-        // CompositeProducts
+        if (currentItemIds.isEmpty()) return Collections.emptyList();
+        
+        // Check cache
+        if (System.currentTimeMillis() - lastCacheUpdate < CACHE_TTL && recommendationCache.containsKey(currentItemIds)) {
+            return recommendationCache.get(currentItemIds);
+        }
 
         // 1. Conseguir ordenes 
         List<Order> historicalOrders = orderRepository.findAll();
@@ -55,12 +64,12 @@ public class RecommendationService {
 
             Set<Long> compositesInThisOrder = new HashSet<>();
             for (Map.Entry<Set<Long>, Long> entry : componentToCompositeMap.entrySet()) {
-                // Si el OrderItem contiene todos los productos de un compositeproduct
-                // asumimos que compositeproduct fue el producto comprado
                 if (itemsInThisOrder.containsAll(entry.getKey())) {
                     compositesInThisOrder.add(entry.getValue());
                 }
             }
+            // Also include simple items that aren't part of the composite logic if needed
+            // For now, following original logic focusing on composites
             if (!compositesInThisOrder.isEmpty()) {
                 transactions.add(compositesInThisOrder);
             }
@@ -70,7 +79,7 @@ public class RecommendationService {
             return Collections.emptyList();
         }
 
-        // --- APRIORI ALGORITMO donde conseguimos los items mas frecuentes que el cliente ha comprado y generamos reglas de asociacion---
+        // --- APRIORI ALGORITMO ---
         Map<Set<Long>, Double> frequentItemsets = findFrequentItemsets(transactions, minSupport);
         List<AssociationRule> rules = generateAssociationRules(frequentItemsets, transactions.size(), minConfidence);
 
@@ -88,7 +97,13 @@ public class RecommendationService {
             return Collections.emptyList();
         }
 
-        return productRepository.findAllById(recommendedProductIds);
+        List<ProductComponent> results = productRepository.findAllById(recommendedProductIds);
+        
+        // Update Cache
+        recommendationCache.put(currentItemIds, results);
+        lastCacheUpdate = System.currentTimeMillis();
+        
+        return results;
     }
 
     private Map<Set<Long>, Double> findFrequentItemsets(List<Set<Long>> transactions, double minSupport) {

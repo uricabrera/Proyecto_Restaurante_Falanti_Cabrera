@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cocina</title>
+    <title>Cocina - Realtime</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
     <style>
         :root {
             --pico-font-size: 100%;
@@ -24,9 +27,10 @@
             border-radius: var(--pico-card-border-radius);
             box-shadow: var(--pico-card-box-shadow);
             border-top: 5px solid var(--pending-color);
+            transition: all 0.3s ease;
         }
         .order-card[data-status="PREPARING"] { border-top-color: var(--preparing-color); }
-        .order-card[data-status="COMPLETED"] { border-top-color: var(--completed-color); }
+        .order-card[data-status="COMPLETED"] { border-top-color: var(--completed-color); opacity: 0.6; }
         
         .order-card header { padding: 1rem; border-bottom: 1px solid var(--pico-muted-border-color); }
         .order-card footer { padding: 1rem; background-color: var(--pico-muted-background-color); }
@@ -46,17 +50,21 @@
         }
         .dot-PENDING, .dot-PREPARING { background-color: var(--preparing-color); }
         .dot-COMPLETED { background-color: var(--completed-color); }
-        .item-critical { color: var(--critical-color); font-weight: bold; }
-        .refresh-indicator { animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        
+        .connection-status {
+            font-size: 0.8rem;
+            margin-left: 1rem;
+        }
+        .status-connected { color: green; }
+        .status-disconnected { color: red; }
     </style>
 </head>
 <body>
     <main class="container">
         <header style="display: flex; justify-content: space-between; align-items: center;">
             <hgroup>
-                <h1>Cocina</h1>
-                <p>Mostrando ordenes activas. Auto-refrescando <span class="refresh-indicator">. . .</span></p>
+                <h1>Cocina (KDS)</h1>
+                <p>Ordenes Activas <span id="connection-status" class="connection-status status-disconnected">● Disconnected</span></p>
             </hgroup>
             <div class="user-info">
                 <span>Chef: <strong id="chef-name"></strong></span>
@@ -65,16 +73,18 @@
         </header>
 
         <div id="order-grid" class="order-grid">
-            <p aria-busy="true">Cargando ordenes...</p>
+            <p aria-busy="true">Connecting to kitchen network...</p>
         </div>
     </main>
 
     <script>
         const orderGrid = document.getElementById('order-grid');
         const chefNameEl = document.getElementById('chef-name');
+        const connectionStatusEl = document.getElementById('connection-status');
         
         const CHEF_ID = sessionStorage.getItem('userId');
         const username = sessionStorage.getItem('username');
+        let stompClient = null;
 
         if (!CHEF_ID || sessionStorage.getItem('userRole') !== 'Chef') {
             alert('Access denied. Chefs only.');
@@ -83,8 +93,42 @@
         chefNameEl.textContent = username;
 
         function logout() {
+            if(stompClient) stompClient.disconnect();
             sessionStorage.clear();
             window.location.href = '/index.html';
+        }
+
+        function connectWebSocket() {
+            const socket = new SockJS('/ws-kitchen');
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null; // Disable debug logs
+
+            stompClient.connect({}, function (frame) {
+                connectionStatusEl.textContent = "● Connected (Real-time)";
+                connectionStatusEl.className = "connection-status status-connected";
+                
+                // Subscribe to general kitchen updates
+                stompClient.subscribe('/topic/kitchen/orders', function (message) {
+                    console.log("WS Update received");
+                    // Ideally, we should debounce this if many items update at once
+                    fetchActiveOrders(); 
+                });
+
+                // Subscribe to full order completion events
+                stompClient.subscribe('/topic/kitchen/order-complete', function (message) {
+                    console.log("Order Complete received");
+                    fetchActiveOrders();
+                });
+                
+                // Initial load
+                fetchActiveOrders();
+
+            }, function (error) {
+                console.error("STOMP error", error);
+                connectionStatusEl.textContent = "● Disconnected (Retrying...)";
+                connectionStatusEl.className = "connection-status status-disconnected";
+                setTimeout(connectWebSocket, 5000);
+            });
         }
 
         function getStationIcon(station) {
@@ -110,11 +154,13 @@
                     return;
                 }
                 
+                // Simple Diffing strategy could go here, but for now full rebuild
                 orderGrid.innerHTML = '';
                 orders.forEach(order => {
                     const card = document.createElement('article');
                     card.className = 'order-card';
                     card.dataset.status = order.status;
+                    card.id = `order-${order.orderId}`;
 
                     const itemsHtml = order.items.map(item => {
                         const productName = item.product ? item.product.name : '[Product Deleted]';
@@ -122,14 +168,13 @@
                         const stationIcon = getStationIcon(requiredStation);
                         const stationName = requiredStation ? requiredStation.replace(/_STATION/,'').replace(/_/, ' ') : 'N/A';
                         
-                        // FIX: Safely create the prep time display string
                         const prepTimeDisplay = (typeof item.preparationTime === 'number' && item.preparationTime > 0)
                             ? `<small style="display: block; color: var(--pico-muted-color);">⏳ ${item.preparationTime.toFixed(1)} min</small>`
                             : '';
 
-                        // Determine the button or checkmark based on item status
+                        // Pass 'this' to the function to control the button state
                         const actionControl = (item.status === 'PENDING' || item.status === 'PREPARING')
-                            ? `<button class="secondary outline small" onclick="completeItem(${item.id})">Finalizar</button>`
+                            ? `<button class="secondary outline small" onclick="completeItem(${item.id}, this)">Finalizar</button>`
                             : '<span>✔️</span>';
 
                         return `
@@ -160,7 +205,7 @@
                             </div>
                         </header>
                         <ul class="item-list">${itemsHtml}</ul>
-                        <footer><small>Tiempo estimado total de la orden: ${totalPrepTime} mins</small></footer>
+                        <footer><small>Tiempo estimado total: ${totalPrepTime} mins</small></footer>
                     `;
                     orderGrid.appendChild(card);
                 });
@@ -171,27 +216,34 @@
             }
         }
         
-        async function completeItem(itemId) {
-            const button = event.target;
-            button.setAttribute('aria-busy', 'true');
-            button.disabled = true;
+        async function completeItem(itemId, btnElement) {
+            // Immediate feedback: Disable the button
+            if(btnElement) {
+                btnElement.setAttribute('aria-busy', 'true');
+                btnElement.disabled = true;
+                btnElement.textContent = "Updating...";
+            }
 
             try {
                 const response = await fetch(`/api/chef/items/${itemId}/complete`, { method: 'POST' });
                 if (!response.ok) throw new Error('Server failed to complete item.');
-                fetchActiveOrders(); // Refresh the whole view
+                // Success! Do nothing else.
+                // The WebSocket 'afterCommit' event will trigger fetchActiveOrders()
+                // which will replace this button with a ✔️ checkmark.
             } catch (error) {
                 console.error('Error completing item:', error);
                 alert('Could not complete the item.');
-                button.removeAttribute('aria-busy');
-                button.disabled = false;
+                // Revert button state on error
+                if(btnElement) {
+                    btnElement.removeAttribute('aria-busy');
+                    btnElement.disabled = false;
+                    btnElement.textContent = "Finalizar";
+                }
             }
         }
 
-        console.warn("If you see errors about missing products, consider deleting your 'restaurant.db' file and restarting the server to clear old data.");
-
-        fetchActiveOrders();
-        setInterval(fetchActiveOrders, 5000);
+        // Start connection
+        connectWebSocket();
     </script>
 </body>
 </html>
