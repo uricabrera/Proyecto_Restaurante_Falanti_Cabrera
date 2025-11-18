@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cliente Dashboard - The Restaurant</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+        :root { --pico-font-size: 100%; }
+        body { background-color: var(--pico-muted-background-color); }
+        .grid {
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+        .card {
+            background-color: var(--pico-card-background-color);
+            border-radius: var(--pico-card-border-radius);
+            box-shadow: var(--pico-card-box-shadow);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--pico-card-box-shadow), 0 8px 30px rgba(0,0,0,0.12);
+        }
+        .card footer { padding-top: 0; }
+        .card header { padding-bottom: 0.5rem; }
+        .recommendations { background-color: #fffbe6; border-left: 5px solid #ffc107; }
+        .order-status-items { list-style: none; padding: 0; }
+        .order-status-items li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0;}
+        .dot-PENDING, .dot-PREPARING { color: #fdac41; }
+        .dot-COMPLETED { color: #28a745; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <hgroup>
+                <h1>Bienvenido Cliente</h1>
+                <p>Elige los productos que quieras comprar</p>
+            </hgroup>
+            <div>
+                <span>Hello, <strong id="username-display">Guest</strong>!</span>
+                <a href="#" role="button" class="secondary outline" onclick="logout()" style="margin-left: 1rem;">Logout</a>
+            </div>
+        </header>
+
+        <section id="recommendations-section" style="display: none;">
+            <h2>Tambien te podría gustar</h2>
+            <div class="grid" id="recommendations-grid"></div>
+        </section>
+
+        <section>
+            <h2>Nuestro Menu</h2>
+            <div class="grid" id="menu-items">
+                <p style="grid-column: 1/-1; text-align: center;" aria-busy="true">Cargando menu...</p>
+            </div>
+        </section>
+        
+        <article id="order-section">
+            <hgroup>
+                <h2>Tu Orden</h2>
+                <p id="order-empty-msg">Tu carrito esta vacio</p>
+            </hgroup>
+            <div id="current-order"></div>
+            <footer id="order-footer" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>Total: $<span id="order-total">0.00</span></h3>
+                    <button id="place-order-btn">Colocar orden</button>
+                </div>
+            </footer>
+        </article>
+        
+        <article id="order-status" style="display: none;">
+            <h3>Estado de la orden</h3>
+            <p id="status-text"></p>
+            <ul id="order-status-items"></ul>
+            <button id="pay-btn" style="display:none;">Pagar ahora y terminar</button>
+        </article>
+    </main>
+
+    <script>
+        // DOM Elements
+        const menuContainer = document.getElementById('menu-items');
+        const orderContainer = document.getElementById('current-order');
+        const placeOrderBtn = document.getElementById('place-order-btn');
+        const orderStatusContainer = document.getElementById('order-status');
+        const statusText = document.getElementById('status-text');
+        const payBtn = document.getElementById('pay-btn');
+        const orderTotalSpan = document.getElementById('order-total');
+        const usernameDisplay = document.getElementById('username-display');
+        const recommendationsSection = document.getElementById('recommendations-section');
+        const recommendationsGrid = document.getElementById('recommendations-grid');
+        const orderFooter = document.getElementById('order-footer');
+        const orderEmptyMsg = document.getElementById('order-empty-msg');
+
+        // State
+        let currentOrder = {};
+        let products = {};
+        let activeOrderCheckInterval = null;
+        let currentOrderId = null;
+
+        // Auth
+        const username = sessionStorage.getItem('username');
+        if (username) { usernameDisplay.textContent = username; }
+        if (!sessionStorage.getItem('userId')) { window.location.href = '/login.html'; }
+        
+        function logout() { sessionStorage.clear(); window.location.href = '/index.html'; }
+
+        // Core Functions
+        async function loadMenu() {
+            try {
+                const response = await fetch('/api/products'); 
+                if (!response.ok) throw new Error('Failed to load menu');
+                const productsArray = await response.json();
+                menuContainer.innerHTML = '';
+                if(productsArray.length === 0){
+                    menuContainer.innerHTML = '<p>El menu esta actualmente vacio.</p>';
+                } else {
+                    productsArray.forEach(product => {
+                        products[product.id] = product;
+                        menuContainer.innerHTML += createProductCard(product);
+                    });
+                }
+            } catch (error) {
+                console.error(error);
+                menuContainer.innerHTML = '<p>Error loading menu.</p>';
+            }
+        }
+
+        function createProductCard(product, isRecommendation = false) {
+            return `
+                <article class="card ${isRecommendation ? 'recommendations' : ''}">
+                    <header>
+                        <h4>${product.name}</h4>
+                        ${isRecommendation ? '<small>Recomendado para ti!</small>' : ''}
+                    </header>
+                    <p>$${product.price.toFixed(2)}</p>
+                    <footer>
+                        <button class="add-to-order-btn" data-product-id="${product.id}">Add to Order</button>
+                    </footer>
+                </article>
+            `;
+        }
+        
+        function addToOrder(productId) {
+            const pid = parseInt(productId);
+            if (!products[pid]) {
+                console.error(`Product data for ID ${pid} is not loaded.`);
+                return;
+            }
+
+            if (!currentOrder[pid]) {
+                currentOrder[pid] = { product: products[pid], quantity: 0 };
+            }
+            currentOrder[pid].quantity++;
+            updateOrderView();
+            fetchRecommendations();
+        }
+
+        function removeFromOrder(productId) {
+            const pid = parseInt(productId);
+            if (currentOrder[pid]) {
+                currentOrder[pid].quantity--;
+                if (currentOrder[pid].quantity <= 0) {
+                    delete currentOrder[pid];
+                }
+                updateOrderView();
+                fetchRecommendations();
+            }
+        }
+
+        function updateOrderView() {
+            const hasItems = Object.keys(currentOrder).length > 0;
+            orderEmptyMsg.style.display = hasItems ? 'none' : 'block';
+            orderFooter.style.display = hasItems ? 'block' : 'none';
+
+            if (!hasItems) {
+                orderContainer.innerHTML = '';
+                orderTotalSpan.textContent = '0.00';
+                recommendationsSection.style.display = 'none'; // Hide if cart becomes empty
+                return;
+            }
+            
+            let orderHtml = '';
+            let total = 0;
+            for (const [productId, item] of Object.entries(currentOrder)) {
+                const subtotal = item.product.price * item.quantity;
+                total += subtotal;
+                orderHtml += `
+                    <div style="display:flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--pico-muted-border-color);">
+                        <div><strong>${item.product.name}</strong></div>
+                        <div>
+                            <button class="secondary outline" style="--pico-font-size: 0.75rem; padding: 0.2rem 0.5rem;" onclick="removeFromOrder(${productId})">-</button>
+                            <span style="margin: 0 1rem;">${item.quantity}</span>
+                            <button class="secondary outline" style="--pico-font-size: 0.75rem; padding: 0.2rem 0.5rem;" onclick="addToOrder(${productId})">+</button>
+                            <strong style="margin-left: 1.5rem; min-width: 50px; text-align: right;">$${subtotal.toFixed(2)}</strong>
+                        </div>
+                    </div>
+                `;
+            }
+            orderContainer.innerHTML = orderHtml;
+            orderTotalSpan.textContent = total.toFixed(2);
+        }
+
+        async function fetchRecommendations() {
+            const itemIds = Object.keys(currentOrder);
+            if(itemIds.length === 0) {
+                recommendationsSection.style.display = 'none';
+                return;
+            }
+            const query = new URLSearchParams(itemIds.map(id => ['currentItemIds', id])).toString();
+            try {
+                const response = await fetch(`/api/client/recommendations?${query}`);
+                if (!response.ok) throw new Error("API responded with an error");
+                const recs = await response.json();
+                
+                if (recs && recs.length > 0) {
+                    recommendationsGrid.innerHTML = '';
+                    recs.forEach(rec => {
+                        // FIX: Ensure product data for recommendations is cached locally
+                        if (!products[rec.id]) {
+                            products[rec.id] = rec;
+                        }
+                        recommendationsGrid.innerHTML += createProductCard(rec, true);
+                    });
+                    recommendationsSection.style.display = 'block';
+                } else {
+                    recommendationsSection.style.display = 'none';
+                }
+            } catch(error) {
+                console.error("Failed to fetch recommendations", error);
+                recommendationsSection.style.display = 'none';
+            }
+        }
+        
+        async function checkOrderStatus() {
+            if (!currentOrderId) return;
+            try {
+                const response = await fetch(`/api/client/orders/${currentOrderId}/status`);
+                if (!response.ok) { 
+                    clearInterval(activeOrderCheckInterval); 
+                    return; 
+                }
+                const order = await response.json();
+                
+                statusText.textContent = `Tu orden #${order.orderId} esta actualmente ${order.status}.`;
+                const itemsHtml = order.items.map(item => `
+                    <li><span class="dot-${item.status}">●</span> ${item.product.name} <strong>(${item.status})</strong></li>
+                `).join('');
+                document.getElementById('order-status-items').innerHTML = itemsHtml;
+
+                if (order.status === 'COMPLETED') {
+                    payBtn.style.display = 'block';
+                    clearInterval(activeOrderCheckInterval);
+                }
+            } catch (error) {
+                console.error('Error al revisar el pedido:', error);
+                clearInterval(activeOrderCheckInterval);
+            }
+        }
+        
+        // Event listeners
+        placeOrderBtn.addEventListener('click', async () => {
+            placeOrderBtn.setAttribute('aria-busy', 'true');
+            const orderData = {};
+            for (const [productId, item] of Object.entries(currentOrder)) {
+                orderData[productId] = item.quantity;
+            }
+            try {
+                const response = await fetch('/api/client/orders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(orderData)
+                });
+                if (!response.ok) throw new Error(await response.text());
+                
+                const order = await response.json();
+                currentOrderId = order.orderId;
+                
+                orderStatusContainer.style.display = 'block';
+                document.getElementById('order-section').style.display = 'none';
+                recommendationsSection.style.display = 'none';
+
+                if(activeOrderCheckInterval) clearInterval(activeOrderCheckInterval);
+                checkOrderStatus();
+                activeOrderCheckInterval = setInterval(checkOrderStatus, 3000);
+                
+                currentOrder = {};
+                updateOrderView();
+            } catch (error) {
+                alert('Error al colocar la orden: ' + error.message);
+            } finally {
+                placeOrderBtn.removeAttribute('aria-busy');
+            }
+        });
+        
+        payBtn.addEventListener('click', () => {
+            orderStatusContainer.innerHTML = '<h3>Gracias!</h3><p>Pago exitoso. Esperamos verte nuevamente pronto!</p>';
+            setTimeout(() => {
+                document.getElementById('order-section').style.display = 'block';
+                orderStatusContainer.style.display = 'none';
+                payBtn.style.display = 'none';
+                currentOrderId = null;
+            }, 5000);
+        });
+
+        // Use event delegation for "Add to Order" buttons for better performance
+        document.addEventListener('click', (event) => {
+            if (event.target && event.target.matches('.add-to-order-btn')) {
+                addToOrder(event.target.dataset.productId);
+            }
+        });
+
+        // Initial Load
+        loadMenu();
+    </script>
+</body>
+</html>

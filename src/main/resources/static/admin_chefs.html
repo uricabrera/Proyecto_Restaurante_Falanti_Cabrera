@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestionar Chefs - Admin</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+        :root { --pico-font-size: 100%; }
+        .nav-links a { margin-left: 1rem; }
+        .form-card { background-color: var(--pico-card-background-color); border-radius: var(--pico-card-border-radius); padding: var(--pico-block-spacing-vertical) var(--pico-block-spacing-horizontal); box-shadow: var(--pico-card-box-shadow); }
+        .edit-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <header>
+            <hgroup>
+                <h1>Administrar Chefs</h1>
+                <h2>Añadir, Editar Chefs.</h2>
+            </hgroup>
+            <nav class="nav-links">
+                <a href="/index.html">Home</a>
+                <a href="/admin_products.html">Gestionar Productos</a>
+            </nav>
+        </header>
+
+        <article class="form-card">
+            <h3>Todos los Chefs</h3>
+            <div id="chefs-list" class="grid">
+                <p>Cargando Chefs...</p>
+            </div>
+        </article>
+    </main>
+
+    <!-- Modal for editing a chef -->
+    <dialog id="modal-edit-chef">
+        <article>
+            <header>
+                <a href="#close" aria-label="Close" class="close"></a>
+                <h3 id="modal-title">Editar Chef</h3>
+            </header>
+            <form id="edit-chef-form">
+                <input type="hidden" id="edit-chef-id" name="userId">
+                <label for="edit-nombre">Nombre Completo</label>
+                <input type="text" id="edit-nombre" name="nombre" required>
+                
+                <label for="edit-username">Usuario</label>
+                <input type="text" id="edit-username" name="username" required>
+                
+                <label for="edit-station">Estacion</label>
+                <select id="edit-station" name="station" required>
+                    <option value="SAUCE_STATION">Estacion de Salsas</option>
+                    <option value="PASTRY_STATION">Estacion de Postres</option>
+                    <option value="GRILL_STATION">Estacion de Carnes</option>
+                    <option value="SOUS_CHEF_STATION">Estacion Sous Chef</option>
+                    <option value="MAIN_CHEF_STATION">Estacion Chef Principal</option>
+                </select>
+                
+                <label for="edit-efficiency">Eficiencia (e.g., 1.0)</label>
+                <input type="number" id="edit-efficiency" name="efficiency" step="0.1" required>
+
+                <footer>
+                    <button type="submit" id="save-chef-btn">Guardar cambios</button>
+                    <a href="#cancel" role="button" class="secondary" onclick="closeModal()">Cancelar</a>
+                </footer>
+            </form>
+        </article>
+    </dialog>
+
+    <script>
+        const chefsListContainer = document.getElementById('chefs-list');
+        const modal = document.getElementById('modal-edit-chef');
+        const editForm = document.getElementById('edit-chef-form');
+
+        async function loadChefs() {
+            try {
+                const response = await fetch('/api/chefs');
+                if (!response.ok) throw new Error('Failed to load chefs');
+                const chefs = await response.json();
+                
+                chefsListContainer.innerHTML = '';
+                if (chefs.length === 0) {
+                    chefsListContainer.innerHTML = '<p>No chefs found. Please register a new chef.</p>';
+                    return;
+                }
+                
+                chefs.forEach(chef => {
+                    const card = document.createElement('article');
+                    card.innerHTML = `
+                        <header><strong>${chef.nombre}</strong> (@${chef.username})</header>
+                        <p>
+                            <strong>Station:</strong> ${chef.station.replace(/_/g, ' ')}<br>
+                            <strong>Efficiency:</strong> ${chef.efficiency}
+                        </p>
+                        <footer>
+                            <button class="secondary" onclick='openEditModal(${JSON.stringify(chef)})'>Edit</button>
+                        </footer>
+                    `;
+                    chefsListContainer.appendChild(card);
+                });
+            } catch (error) {
+                console.error(error);
+                chefsListContainer.innerHTML = '<p style="color:red;">Could not load chefs.</p>';
+            }
+        }
+        
+        function openEditModal(chef) {
+            document.getElementById('edit-chef-id').value = chef.userId;
+            document.getElementById('modal-title').textContent = `Edit ${chef.nombre}`;
+            document.getElementById('edit-nombre').value = chef.nombre;
+            document.getElementById('edit-username').value = chef.username;
+            document.getElementById('edit-station').value = chef.station;
+            document.getElementById('edit-efficiency').value = chef.efficiency;
+            modal.showModal();
+        }
+
+        function closeModal() {
+            modal.close();
+        }
+
+        editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const saveBtn = document.getElementById('save-chef-btn');
+            saveBtn.setAttribute('aria-busy', 'true');
+            saveBtn.disabled = true;
+
+            const chefId = document.getElementById('edit-chef-id').value;
+            const data = {
+                nombre: document.getElementById('edit-nombre').value,
+                username: document.getElementById('edit-username').value,
+                station: document.getElementById('edit-station').value,
+                efficiency: parseFloat(document.getElementById('edit-efficiency').value)
+            };
+
+            try {
+                const response = await fetch(`/api/chefs/${chefId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) throw new Error('Failed to save changes');
+                
+                closeModal();
+                loadChefs();
+            } catch (error) {
+                console.error(error);
+                alert('Error saving chef details.');
+            } finally {
+                saveBtn.removeAttribute('aria-busy');
+                saveBtn.disabled = false;
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', loadChefs);
+    </script>
+</body>
+</html>

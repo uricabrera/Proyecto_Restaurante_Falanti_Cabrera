@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        body { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card { 
+            padding: 2rem; 
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .logo {
+            text-align: center;
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        h2 {
+            text-align: center;
+        }
+        #error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-top: 1rem;
+            display: none;
+        }
+        .links {
+            margin-top: 2rem;
+            text-align: center;
+        }
+        .links a {
+            color: #667eea;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <main class="container" style="max-width: 450px;">
+        <article class="card">
+            <div class="logo">🍴</div>
+            <h2>Login</h2>
+            <form id="login-form">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+                
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" required>
+
+                <button type="submit">Login</button>
+            </form>
+            <div id="error-message"></div>
+            <div class="links">
+                <a href="/register.html">No tienes una cuenta? Registrarse</a><br>
+                <a href="/index.html">← Volver a home</a>
+            </div>
+        </article>
+    </main>
+    
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const username = form.username.value;
+            const password = form.password.value;
+            const errorMessage = document.getElementById('error-message');
+            const button = form.querySelector('button');
+
+            button.disabled = true;
+            button.textContent = 'Logging in...';
+            errorMessage.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Store user info in the session to use on other pages
+                    sessionStorage.setItem('userId', data.userId);
+                    sessionStorage.setItem('userRole', data.role);
+                    sessionStorage.setItem('username', username);
+
+                    // Redirect based on role
+                    if (data.role === 'Chef') {
+                        window.location.href = '/kitchen_ui.html';
+                    } else {
+                        window.location.href = '/client_dashboard.html';
+                    }
+                } else {
+                    errorMessage.textContent = 'Invalid username or password.';
+                    errorMessage.style.display = 'block';
+                }
+            } catch (error) {
+                errorMessage.textContent = 'An error occurred. Please try again.';
+                errorMessage.style.display = 'block';
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Login';
+            }
+        });
+    </script>
+</body>
+</html>

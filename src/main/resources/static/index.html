@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenido al restaurante (Proyecto Integrador)</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+        body { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card { 
+            padding: 2rem; 
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .grid {
+            margin-top: 2rem;
+        }
+        .admin-links {
+            margin-top: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .admin-links a {
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <article class="card">
+            <div class="logo">🍴</div>
+            <hgroup>
+                <h1>Bienvenido al restaurante!</h1>
+                <h2>Integrantes: Cabrera Uriel y Falanti Mateo</h2>
+            </hgroup>
+            <div class="grid">
+                <a href="/login.html" role="button">Login</a>
+                <a href="/register.html" role="button" class="secondary">Registrar</a>
+            </div>
+            <div class="admin-links">
+                <a href="/admin_products.html">Admin: Gestionar Productos</a>
+                <a href="/admin_chefs.html">Admin: Gestionar Chefs</a>
+            </div>
+        </article>
+    </main>
+</body>
+</html>

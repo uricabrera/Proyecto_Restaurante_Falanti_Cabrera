@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style> 
+        body { 
+            padding-top: 2rem; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        main {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .nav-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        .back-link {
+            color: #667eea;
+            text-decoration: none;
+        }
+        #message {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 5px;
+            display: none;
+        }
+        #message.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        #message.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <main class="container" style="max-width: 600px;">
+        <div class="nav-header">
+            <h2>Create an Account</h2>
+            <a href="/index.html" class="back-link">← Back to Home</a>
+        </div>
+        <form id="register-form">
+            <label for="nombre">Nombre Completo</label>
+            <input type="text" id="nombre" name="nombre" required>
+            
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required>
+            
+            <label for="password">Contraseña</label>
+            <input type="password" id="password" name="password" required>
+            
+            <label for="direccion">Direccion</label>
+            <input type="text" id="direccion" name="direccion">
+
+            <fieldset>
+                <legend>Rol</legend>
+                <label><input type="radio" name="role" value="cliente" checked onchange="toggleChefOptions()"> Cliente</label>
+                <label><input type="radio" name="role" value="chef" onchange="toggleChefOptions()"> Chef</label>
+            </fieldset>
+
+            <div id="chef-options" style="display: none;">
+                <label for="station">Estacion de cocina</label>
+                <select id="station" name="station">
+                    <option value="SAUCE_STATION">Estacion de salsa</option>
+                    <option value="PASTRY_STATION">Estacion de postres</option>
+                    <option value="GRILL_STATION">Estacion de carnes</option>
+                    <option value="SOUS_CHEF_STATION">Estacion Sous Chef</option>
+                    <option value="MAIN_CHEF_STATION">Estacion Chef Principal</option>
+                </select>
+                <label for="efficiency">Eficiencia (1.0 es promedio)</label>
+                <input type="number" id="efficiency" name="efficiency" step="0.1" value="1.0">
+            </div>
+
+            <button type="submit">Register</button>
+        </form>
+        <p id="message"></p>
+        <p style="text-align: center; margin-top: 2rem;">
+            Ya tienes una cuenta? <a href="/login.html">Login</a>
+        </p>
+    </main>
+
+    <script>
+        function toggleChefOptions() {
+            const role = document.querySelector('input[name="role"]:checked').value;
+            const chefOptions = document.getElementById('chef-options');
+            chefOptions.style.display = role === 'chef' ? 'block' : 'none';
+        }
+
+        document.getElementById('register-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
+            const role = data.role;
+            const messageEl = document.getElementById('message');
+            const submitBtn = form.querySelector('button[type="submit"]');
+
+            // Show loading state
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creando cuenta...';
+
+            const endpoint = role === 'chef' ? '/api/chefs' : '/api/clientes';
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    messageEl.textContent = 'Registro exitoso! Redireccionando a login...';
+                    messageEl.className = 'success';
+                    form.reset();
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 2000);
+                } else {
+                    const error = await response.text();
+                    messageEl.textContent = 'Registration failed: ' + (error || 'Unknown error');
+                    messageEl.className = 'error';
+                }
+            } catch (error) {
+                messageEl.textContent = 'An error occurred: ' + error.message;
+                messageEl.className = 'error';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Register';
+            }
+        });
+    </script>
+</body>
+</html>

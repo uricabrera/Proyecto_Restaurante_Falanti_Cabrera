@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de productos - Admin</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+        body {
+            padding: 2rem 0;
+            background: #f5f5f5;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        .nav-links a {
+            margin-left: 1rem;
+            color: #667eea;
+            text-decoration: none;
+        }
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        table {
+            background: white;
+        }
+        .product-form {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+        }
+        .form-section {
+            border-top: 2px solid #eee;
+            margin-top: 2rem;
+            padding-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="header">
+            <h1>Product Management</h1>
+            <div class="nav-links">
+                <a href="/index.html">Home</a>
+                <a href="/admin_chefs.html">Manage Chefs</a>
+                <a href="/login.html">Login</a>
+            </div>
+        </div>
+        
+        <div id="success-message" class="success-message"></div>
+
+        <!-- FORM FOR SIMPLE PRODUCTS -->
+        <div class="product-form">
+            <h2>Añadir producto simple</h2>
+            <form id="add-product-form">
+                <div class="grid">
+                    <input type="text" name="name" placeholder="Nombre del producto" required>
+                    <input type="number" name="price" placeholder="Precio" step="0.01" required>
+                </div>
+                <div class="grid">
+                    <input type="number" name="preparationTime" placeholder="Tiempo de preparacion" step="0.5" required>
+                    <select name="requiredStation" required>
+                        <option value="" disabled selected>Seleccionar estacion requerida</option>
+                        <option value="SAUCE_STATION">Estacion de salsas</option>
+                        <option value="PASTRY_STATION">Estacion de postres</option>
+                        <option value="GRILL_STATION">Estacion de carnes</option>
+                        <option value="SOUS_CHEF_STATION">Estacion de Sous Chef</option>
+                        <option value="MAIN_CHEF_STATION">Estacion Chef Principal</option>
+                    </select>
+                </div>
+                <label>
+                  <input type="checkbox" style="opacity:0; position:absolute; left:9999px;" name="isVisibleToClient">
+                </label>
+                <button type="submit">Añadir producto simple</button>
+            </form>
+        </div>
+
+        <!-- FORM FOR COMPOSITE PRODUCTS -->
+        <div class="product-form form-section">
+            <h2>Construir producto compuesto</h2>
+            <form id="add-composite-form">
+                <input type="text" name="name" placeholder="Nombre del producto compuesto" required>
+                <input type="number" name="price" placeholder="Precio" step="0.01" required>
+                <fieldset id="composite-children-options">
+                    <legend>Seleccionar componentes</legend>
+                    <p>Cargando componentes...</p>
+                </fieldset>
+                <label>
+                  <input type="checkbox" style="opacity:0; position:absolute; left:9999px;" name="isVisibleToClient" checked>
+                </label>
+                <button type="submit">Crear producto compuesto</button>
+            </form>
+        </div>
+
+        <h2>Productos existentes</h2>
+        <figure>
+            <table id="products-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Nombre</th>
+                        <th>Precio</th>
+                        <th>Es visible</th>
+                        <th>Tipo</th>
+                        <th>Estacion</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="7" style="text-align: center;">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </figure>
+    </main>
+    
+    <script>
+        const tableBody = document.querySelector('#products-table tbody');
+        const addForm = document.getElementById('add-product-form');
+        const compositeForm = document.getElementById('add-composite-form');
+        const successMessage = document.getElementById('success-message');
+        const compositeOptionsContainer = document.getElementById('composite-children-options');
+
+        async function loadProducts() {
+            try {
+                const response = await fetch('/api/products/all');
+                if (!response.ok) throw new Error('Failed to load products');
+                
+                const products = await response.json();
+                tableBody.innerHTML = '';
+                compositeOptionsContainer.innerHTML = '<legend>Seleccionar componentes</legend>';
+
+                if (products.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No products found</td></tr>';
+                    return;
+                }
+                
+                products.forEach(p => {
+                    const row = tableBody.insertRow();
+                    row.innerHTML = `
+                        <td>${p.id}</td>
+                        <td>${p.name}</td>
+                        <td>$${p.price.toFixed(2)}</td>
+                        <td>${p.visibleToClient ? '✅ Yes' : '❌ No'}</td>
+                        <td>${p.type}</td>
+                        <td>${p.type === 'SIMPLE' ? (p.requiredStation || 'N/A').replace(/_/g, ' ') : 'N/A'}</td>
+                        <td>
+                            <button class="contrast outline small" onclick="deleteProduct(${p.id})">Delete</button>
+                        </td>
+                    `;
+
+                    if (p.type === 'SIMPLE') {
+                        const label = document.createElement('label');
+                        label.innerHTML = `<input type="checkbox" name="children" value="${p.id}" data-type="${p.type}"> ${p.name}`;
+                        compositeOptionsContainer.appendChild(label);
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading products:', error);
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">Error loading products</td></tr>';
+            }
+        }
+
+        function showSuccessMessage(message) {
+            successMessage.textContent = message;
+            successMessage.style.display = 'block';
+            setTimeout(() => { successMessage.style.display = 'none'; }, 3000);
+        }
+
+        async function postProductData(data, button, form) {
+            button.setAttribute('aria-busy', 'true');
+            try {
+                const response = await fetch('/api/products', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Request failed: ${errorText}`);
+                }
+                showSuccessMessage('Product saved successfully!');
+                form.reset();
+                loadProducts();
+            } catch (error) {
+                console.error('Error saving product:', error);
+                alert('Error saving product: ' + error.message);
+            } finally {
+                button.removeAttribute('aria-busy');
+            }
+        }
+
+        addForm.addEventListener('submit', async e => {
+            e.preventDefault();
+            const formData = new FormData(addForm);
+            const isVisibleCheckbox = addForm.querySelector('input[name="isVisibleToClient"]');
+            
+            const data = {
+                type: 'SIMPLE',
+                name: formData.get('name'),
+                price: parseFloat(formData.get('price')),
+                preparationTime: parseFloat(formData.get('preparationTime')),
+                requiredStation: formData.get('requiredStation'),
+                // THIS IS THE FIX: Directly check the 'checked' property of the checkbox element.
+                isVisibleToClient: isVisibleCheckbox.checked 
+            };
+            await postProductData(data, addForm.querySelector('button'), addForm);
+        });
+        
+        compositeForm.addEventListener('submit', async e => {
+            e.preventDefault();
+            const formData = new FormData(compositeForm);
+            const isVisibleCheckbox = compositeForm.querySelector('input[name="isVisibleToClient"]');
+            
+            const selectedCheckboxes = compositeForm.querySelectorAll('input[name="children"]:checked');
+            const childComponents = Array.from(selectedCheckboxes).map(checkbox => ({ 
+                id: parseInt(checkbox.value),
+                type: 'SIMPLE' 
+            }));
+
+            if (childComponents.length === 0) {
+                alert('A composite product must have at least one component.');
+                return;
+            }
+
+            const payload = {
+                type: 'COMPOSITE',
+                name: formData.get('name'),
+                price: parseFloat(formData.get('price')),
+                isVisibleToClient: isVisibleCheckbox.checked,
+                children: childComponents
+            };
+            
+            await postProductData(payload, compositeForm.querySelector('button'), compositeForm);
+        });
+
+        async function deleteProduct(id) {
+            if (confirm(`Are you sure you want to delete product #${id}? This cannot be undone.`)) {
+                try {
+                    const response = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+                    if (!response.ok) throw new Error('Failed to delete product');
+                    loadProducts();
+                } catch (error) {
+                    console.error('Error deleting product:', error);
+                    alert('Error deleting product. It might be part of a composite product.');
+                }
+            }
+        }
+
+        loadProducts();
+    </script>
+</body>
+</html>
