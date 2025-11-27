@@ -3,6 +3,7 @@ package com.restaurante.demo.service;
 import com.restaurante.demo.dto.ItemStatusUpdateDTO;
 import com.restaurante.demo.model.*;
 import com.restaurante.demo.repository.ChefRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
@@ -12,9 +13,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
-// Implementa la logica de ruteo a traves de un balanceador de carga con RoutingStrategy
-
 @Component
+@Slf4j // Report Section 6.3
 public class LeastLoadedChefStrategy implements RoutingStrategy {
 
     private final ChefRepository chefRepository;
@@ -29,37 +29,39 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
 
     @Override
     public void route(Order order, OrderItem item, ConcurrentHashMap<Long, ChefWorkQueue> chefQueues, SimpMessagingTemplate messagingTemplate) {
-        // 1. Calcula el tiempo de ruteo a traves del algoritmo de tiempo de estimacion de servicio
-        timeEstimationService.calculateEstimatedCompletionTime(order);
+        // 1. Calculate routing time via Time Estimation Service
+        try {
+            timeEstimationService.calculateEstimatedCompletionTime(order);
+        } catch (Exception e) {
+            log.warn("CPM Calculation failed for order {}. Proceeding with fallback.", order.getOrderId());
+        }
         
         ProductComponent component = item.getProduct(); 
 
         if (!(component instanceof Product)) {
-            System.err.println("Error: Se intento enrutar un producto compuesto " + component.getName());
+            log.error("Error: Attempted to route composite product {}", component.getName());
             return;
         }
 
         Product product = (Product) component;
         ChefStation requiredStation = product.getRequiredStation();
         if (requiredStation == null) {
-            System.err.println("Warning: Producto " + product.getName() + " no tiene estacion.");
+            log.warn("Warning: Product {} has no required station.", product.getName());
             return;
         }
 
-        // Get chefs for specific station
         List<Chef> availableChefs = chefRepository.findByStation(requiredStation);
 
         if (availableChefs.isEmpty()) {
-            System.err.println("Warning: no se encontro chefs para: " + requiredStation);
+            log.error("CRITICAL: No chefs found for station: {}", requiredStation);
             return;
         }
 
         Chef bestChef = null;
         double bestScore = Double.MAX_VALUE;
 
-        // 2. Iterar a los chefs para las distintas estaciones
+        // 2. Iterate chefs to find least loaded
         for (Chef chef : availableChefs) {
-            // Ensure queue exists
             ChefWorkQueue queue = chefQueues.computeIfAbsent(chef.getUserId(), k -> new ChefWorkQueue());
             
             double effectiveLoad = queue.getTotalEstimatedTimeInMinutes() * chef.getEfficiency();
@@ -70,7 +72,7 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
             double urgencyBonus = urgencyFactor * URGENCY_WEIGHT; 
             double placementScore = effectiveLoad - urgencyBonus;
 
-            System.out.printf("Chef %d (%s): Carga=%.2f, Eficiencia=%.2f | Score=%.2f%n",
+            log.debug("Chef {} ({}): Load={:.2f}, Eff={:.2f} | Score={:.2f}",
                     chef.getUserId(), requiredStation, queue.getTotalEstimatedTimeInMinutes(), chef.getEfficiency(), placementScore);
 
             if (placementScore < bestScore) {
@@ -79,7 +81,7 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
             }
         }
 
-        // 3. Asignar el chef con el mejor score y NOTIFICAR
+        // 3. Assign best chef and NOTIFY
         if (bestChef != null) {
             ChefWorkQueue targetQueue = chefQueues.get(bestChef.getUserId());
             targetQueue.addItem(item);
@@ -87,12 +89,12 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
             // Set status to PREPARING as it enters the queue
             item.setStatus(OrderStatus.PREPARING);
             
-            System.out.printf(">>> Item '%s' assigned to Chef %d. New Queue Load: %.2f mins.%n",
+            log.info(">>> Item '{}' assigned to Chef {}. New Queue Load: {:.2f} mins.",
                 item.getProduct().getName(), bestChef.getUserId(), targetQueue.getTotalEstimatedTimeInMinutes()
             );
 
             // WebSocket Notification: Notify Kitchen/Chef immediately
-            // FIX: Wrap in TransactionSynchronization to ensure DB is committed before notifying frontend
+            // Report Section 4.1: Wrap in TransactionSynchronization to ensure DB is committed before notifying frontend
             ItemStatusUpdateDTO updateDTO = new ItemStatusUpdateDTO(
                 item.getId(),
                 order.getOrderId(),
@@ -107,12 +109,13 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
             sendAfterCommit(messagingTemplate, "/topic/kitchen/orders", updateDTO);
 
         } else {
-            System.err.println("Error: No se pudo encontrar un chef para la estacion " + requiredStation);
+            log.error("Error: Could not find a best chef for station {}", requiredStation);
         }
     }
 
     /**
      * Helper method to send WebSocket messages only after the transaction commits.
+     * Report Section 4.1
      */
     private void sendAfterCommit(SimpMessagingTemplate template, String destination, Object payload) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -120,11 +123,11 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
                 @Override
                 public void afterCommit() {
                     template.convertAndSend(destination, payload);
-                    System.out.println("WS Message sent to " + destination + " (After Commit)");
+                    log.debug("WS Message sent to {} (After Commit)", destination);
                 }
             });
         } else {
-            // If no transaction is active, send immediately
+            // If no transaction is active (e.g., unit test), send immediately
             template.convertAndSend(destination, payload);
         }
     }

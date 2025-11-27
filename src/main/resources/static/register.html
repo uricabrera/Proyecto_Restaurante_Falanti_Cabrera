@@ -129,11 +129,11 @@
                     }, 2000);
                 } else {
                     const error = await response.text();
-                    messageEl.textContent = 'Registration failed: ' + (error || 'Unknown error');
+                    messageEl.textContent = 'Fallo el registro: ' + (error || 'Unknown error');
                     messageEl.className = 'error';
                 }
             } catch (error) {
-                messageEl.textContent = 'An error occurred: ' + error.message;
+                messageEl.textContent = 'Un error ocurrio: ' + error.message;
                 messageEl.className = 'error';
             } finally {
                 submitBtn.disabled = false;

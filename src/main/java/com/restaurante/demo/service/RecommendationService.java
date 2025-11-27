@@ -5,6 +5,7 @@ import com.restaurante.demo.model.Order;
 import com.restaurante.demo.model.ProductComponent;
 import com.restaurante.demo.repository.OrderRepository;
 import com.restaurante.demo.repository.ProductRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -13,12 +14,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j // Report Section 6.3
 public class RecommendationService {
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     
-    // Simple Cache to avoid running Apriori on every click (Audit recommendation)
+    // Simple Cache
     private final Map<Set<Long>, List<ProductComponent>> recommendationCache = new ConcurrentHashMap<>();
     private long lastCacheUpdate = 0;
     private static final long CACHE_TTL = 60000; // 1 minute cache
@@ -34,6 +36,7 @@ public class RecommendationService {
         
         // Check cache
         if (System.currentTimeMillis() - lastCacheUpdate < CACHE_TTL && recommendationCache.containsKey(currentItemIds)) {
+            log.debug("Recommendation cache hit for items: {}", currentItemIds);
             return recommendationCache.get(currentItemIds);
         }
 
@@ -68,8 +71,6 @@ public class RecommendationService {
                     compositesInThisOrder.add(entry.getValue());
                 }
             }
-            // Also include simple items that aren't part of the composite logic if needed
-            // For now, following original logic focusing on composites
             if (!compositesInThisOrder.isEmpty()) {
                 transactions.add(compositesInThisOrder);
             }
@@ -78,6 +79,8 @@ public class RecommendationService {
         if (transactions.isEmpty()) {
             return Collections.emptyList();
         }
+
+        log.debug("Running Apriori Algorithm on {} transactions...", transactions.size());
 
         // --- APRIORI ALGORITMO ---
         Map<Set<Long>, Double> frequentItemsets = findFrequentItemsets(transactions, minSupport);
@@ -103,6 +106,7 @@ public class RecommendationService {
         recommendationCache.put(currentItemIds, results);
         lastCacheUpdate = System.currentTimeMillis();
         
+        log.info("Generated {} recommendations for input {}", results.size(), currentItemIds);
         return results;
     }
 

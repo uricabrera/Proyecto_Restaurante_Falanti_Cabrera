@@ -12,18 +12,17 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // Enable a simple memory-based message broker to send messages back to the client on destinations prefixed with /topic
+        // Establecemos un messagebroker que se va a encargar de transmitir mensajes a traves de la comunicacion web socket
         config.enableSimpleBroker("/topic");
-        // Defines the prefix for messages that are bound for methods annotated with @MessageMapping
+        // Definimos el prefijo de socket
         config.setApplicationDestinationPrefixes("/app");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Register the "/ws-kitchen" endpoint, enabling the SockJS protocol options.
-        // Check-And-Act: Allowed Origin Patterns fixed per Audit 1 to avoid CORS issues with credentials
+        // Establece endpoint ws-kitchen para la comunicacion socket
         registry.addEndpoint("/ws-kitchen")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns("*") // CORS se maneja a traves de CorsConfig SecurityConfig
                 .withSockJS();
     }
 }

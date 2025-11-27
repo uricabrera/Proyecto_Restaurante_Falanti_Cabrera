@@ -4,16 +4,17 @@ import com.restaurante.demo.model.Order;
 import com.restaurante.demo.model.OrderItem;
 import com.restaurante.demo.model.Product;
 import com.restaurante.demo.model.ProductComponent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
 @Service
+@Slf4j // Report Section 6.3
 public class TimeEstimationService {
 
     /**
      * Calcula el tiempo estimado de completado de una orden a traves de un algoritmo de grafo de dependencias.
-     *
      * @param order The order to analyze.
      * @return The total estimated time in minutes.
      */
@@ -22,8 +23,8 @@ public class TimeEstimationService {
             return 0.0;
         }
 
-        List<OrderItem> items = order.getItems(); // Conseguimos order items
-        Map<Long, OrderItem> itemMap = new HashMap<>(); // HashMap con llave id y OrderItem como valor
+        List<OrderItem> items = order.getItems(); 
+        Map<Long, OrderItem> itemMap = new HashMap<>(); 
         for (OrderItem item : items) {
             if (item.getProduct() != null && item.getProduct().getId() != null) {
                 itemMap.put(item.getProduct().getId(), item); 
@@ -73,8 +74,7 @@ public class TimeEstimationService {
         }
 
         if (topologicalOrder.size() != items.size()) {
-            // This usually means a circular dependency in product prerequisites
-            System.err.println("Ciclo detectado o dependencias faltantes. Usando estimacion simple (SUM).");
+            log.error("Ciclo detectado o dependencias faltantes en CPM. Usando estimacion simple (SUM).");
             return items.stream().mapToDouble(i -> i.getPreparationTime() * i.getQuantity()).sum();
         }
 
@@ -93,7 +93,6 @@ public class TimeEstimationService {
                 }
             }
             item.setEarlyStart(maxPredFinishTime);
-            // Preparation time * quantity
             double totalItemTime = item.getPreparationTime() * item.getQuantity();
             item.setEarlyFinish(item.getEarlyStart() + totalItemTime);
             totalTime = Math.max(totalTime, item.getEarlyFinish());
@@ -105,27 +104,26 @@ public class TimeEstimationService {
             double minSuccStartTime = totalTime;
             if (!successors.get(item).isEmpty()) {
                 minSuccStartTime = successors.get(item).stream()
-                                         .mapToDouble(OrderItem::getLateStart)
-                                         .min().orElse(totalTime);
+                                                    .mapToDouble(OrderItem::getLateStart)
+                                                    .min().orElse(totalTime);
             }
             item.setLateFinish(minSuccStartTime);
             double totalItemTime = item.getPreparationTime() * item.getQuantity();
             item.setLateStart(item.getLateFinish() - totalItemTime);
         }
 
-        // 5. Console Log Analysis
-        System.out.println("--- Analisis de camino critico (CPM) ---");
-        System.out.println("Tiempo total estimado de la orden: " + totalTime + " minutos.");
+        // 5. Logging Analysis (Replaced System.out)
+        log.info("--- CPM Critical Path Analysis (Order {}) ---", order.getOrderId());
+        log.info("Total Estimated Time: {} minutes.", totalTime);
         for (OrderItem item : topologicalOrder) {
             item.setSlack(item.getLateStart() - item.getEarlyStart());
-            System.out.printf(
-                "Item: %-20s | Dur: %4.1f | ES: %4.1f | EF: %4.1f | Slack: %4.1f %s%n",
-                item.getProduct().getName(), (item.getPreparationTime() * item.getQuantity()), 
-                item.getEarlyStart(), item.getEarlyFinish(),
-                item.getSlack(), (item.getSlack() < 0.001) ? "<- CRITICAL" : ""
+            log.debug("Item: {} | Dur: {} | Slack: {} {}", 
+                item.getProduct().getName(), 
+                (item.getPreparationTime() * item.getQuantity()), 
+                item.getSlack(), 
+                (item.getSlack() < 0.001) ? "<- CRITICAL" : ""
             );
         }
-        System.out.println("------------------------------------");
 
         return totalTime;
     }

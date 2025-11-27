@@ -1,8 +1,11 @@
 package com.restaurante.demo.model;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class CompletedState implements OrderState {
     @Override
     public void handle(Order order) {
-        System.out.println("Order " + order.getOrderId() + " is already COMPLETED.");
+        log.warn("Order {} is already COMPLETED. Ignoring request.", order.getOrderId());
     }
 }

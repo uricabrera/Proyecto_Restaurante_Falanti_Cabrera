@@ -15,6 +15,10 @@ public class OrderItem {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Report Section 3.2: Optimistic Locking
+    @Version
+    private Integer version;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
     @JsonBackReference // Previene loop infinito
@@ -22,11 +26,11 @@ public class OrderItem {
 
     @ManyToOne(cascade = CascadeType.PERSIST)
     @JoinColumn(name = "product_id")
-    private ProductComponent product; // Cada OrderItem tiene un ProductComponent
+    private ProductComponent product;
 
     private int quantity;
     
-    @Column(name = "item_status") // Add a status for each item
+    @Column(name = "item_status")
     @Enumerated(EnumType.STRING)
     private OrderStatus status = OrderStatus.PENDING;
 
@@ -44,7 +48,6 @@ public class OrderItem {
     @Transient
     private double slack;
 
-    
     public Long getOrderId() {
         return (order != null) ? order.getOrderId() : null;
     }

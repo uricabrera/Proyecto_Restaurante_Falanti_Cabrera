@@ -6,6 +6,7 @@ import com.restaurante.demo.model.Order;
 import com.restaurante.demo.model.OrderItem;
 import com.restaurante.demo.repository.ChefRepository;
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -15,9 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j // Report Section 6.3
 public class OrderDispatcher {
 
-    // Thread-safe map for chef queues
+    // Report Section 2.2.2: ConcurrentHashMap used for thread-safe access to station queues
     private final ConcurrentHashMap<Long, ChefWorkQueue> chefQueues = new ConcurrentHashMap<>();
     private final RoutingStrategy routingStrategy;
     private final ChefRepository chefRepository;
@@ -30,16 +32,13 @@ public class OrderDispatcher {
         this.messagingTemplate = messagingTemplate;
     }
 
-    /**
-     * Al iniciar, crear una WorkQueue para cada chef
-     */
     @PostConstruct
     private void initializeQueues() {
-        System.out.println("Initializing Chef Queues...");
+        log.info("Initializing Chef Queues...");
         List<Chef> allChefs = chefRepository.findAll();
         allChefs.forEach(chef -> {
             chefQueues.put(chef.getUserId(), new ChefWorkQueue());
-            System.out.println("Created queue for Chef ID: " + chef.getUserId());
+            log.debug("Created queue for Chef ID: {}", chef.getUserId());
         });
     }
     
@@ -52,22 +51,16 @@ public class OrderDispatcher {
         return chefQueues;
     }
 
-    /**
-     * Despachar item utilizando estrategia de ruteo
-     * @param item The order item to be dispatched.
-     */
     public void dispatch(Order order, OrderItem item) {
         // Pass the messaging template to the strategy so it can notify the specific chef immediately
-        routingStrategy.route(order, item, chefQueues, messagingTemplate);
+        try {
+            routingStrategy.route(order, item, chefQueues, messagingTemplate);
+        } catch (Exception e) {
+            log.error("Failed to dispatch item {} for order {}", item.getId(), order.getOrderId(), e);
+        }
     }
 
-    /**
-     * Conseguir el WorkQueue de un chef por ID
-     * @param chefId The ID of the chef.
-     * @return The chef's work queue.
-     */
     public ChefWorkQueue getQueueForChef(Long chefId) {
-        // Compute if absent to prevent NullPointer if a new chef was added after startup
         return chefQueues.computeIfAbsent(chefId, k -> new ChefWorkQueue());
     }
 
@@ -76,6 +69,7 @@ public class OrderDispatcher {
         if (queue == null) {
             return new ChefQueueDTO(List.of(), 0.0);
         }
+        // Return unmodifiable view to protect internal queue state
         List<OrderItem> currentQueue = queue.getItemQueue().stream().collect(Collectors.toUnmodifiableList());
         return new ChefQueueDTO(currentQueue, queue.getTotalEstimatedTimeInMinutes());
     }

@@ -6,8 +6,10 @@ import com.restaurante.demo.model.OrderItem;
 import com.restaurante.demo.model.OrderStatus;
 import com.restaurante.demo.repository.OrderItemRepository;
 import com.restaurante.demo.repository.OrderRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -17,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@Slf4j // Report Section 6.3
 public class OrderService {
     private final List<Observer> observers = new ArrayList<>();
     private final OrderRepository orderRepository;
@@ -52,6 +55,7 @@ public class OrderService {
     @Transactional
     public Order placeOrder(Order order) {
         Order savedOrder = orderRepository.save(order);
+        log.info("Order placed: {}", savedOrder.getOrderId());
         
         // Dispatch items immediately
         savedOrder.getItems().forEach(item -> {
@@ -74,6 +78,7 @@ public class OrderService {
     public void startPreparingOrder(Long orderId) {
         Order order = getOrder(orderId);
         if (order.getStatus() == OrderStatus.PENDING) {
+            log.debug("Transitioning Order {} to PREPARING", orderId);
             order.handleRequest(); // This triggers PendingState -> PreparingState
             orderRepository.save(order);
         }
@@ -81,44 +86,57 @@ public class OrderService {
 
     @Transactional
     public OrderItem completeOrderItem(Long orderItemId) {
-        OrderItem item = orderItemRepository.findById(orderItemId)
-                .orElseThrow(() -> new RuntimeException("OrderItem not found with id: " + orderItemId));
-        
-        // This item is now complete
-        item.setStatus(OrderStatus.COMPLETED);
-        orderItemRepository.save(item);
-
-        // FIX: WebSocket Notification for completion AFTER COMMIT
-        ItemStatusUpdateDTO update = new ItemStatusUpdateDTO(
-            item.getId(),
-            item.getOrder().getOrderId(),
-            null, 
-            "Kitchen", 
-            null, 
-            OrderStatus.COMPLETED,
-            item.getProduct().getName(),
-            0.0
-        );
-        
-        sendAfterCommit(messagingTemplate, "/topic/kitchen/orders", update);
-
-        Order parentOrder = orderRepository.findById(item.getOrder().getOrderId())
-                .orElseThrow(() -> new RuntimeException("Parent order not found during completion check."));
-
-        // Check if all items are complete
-        boolean allOtherItemsComplete = parentOrder.getItems().stream()
-            .filter(orderItem -> !orderItem.getId().equals(orderItemId)) 
-            .allMatch(orderItem -> orderItem.getStatus() == OrderStatus.COMPLETED);
-
-        if (allOtherItemsComplete && parentOrder.getStatus() == OrderStatus.PREPARING) {
-            parentOrder.handleRequest(); // This triggers PreparingState -> CompletedState
-            orderRepository.save(parentOrder);
+        try {
+            OrderItem item = orderItemRepository.findById(orderItemId)
+                    .orElseThrow(() -> new RuntimeException("OrderItem not found with id: " + orderItemId));
             
-            // Notify order completion
-            sendAfterCommit(messagingTemplate, "/topic/kitchen/order-complete", parentOrder.getOrderId());
-        }
+            if (item.getStatus() == OrderStatus.COMPLETED) {
+                log.warn("Item {} already completed. Skipping.", orderItemId);
+                return item;
+            }
 
-        return item;
+            // This item is now complete
+            item.setStatus(OrderStatus.COMPLETED);
+            orderItemRepository.save(item); // triggers version check
+
+            log.info("Item {} ({}) completed.", item.getId(), item.getProduct().getName());
+
+            // FIX: WebSocket Notification for completion AFTER COMMIT
+            ItemStatusUpdateDTO update = new ItemStatusUpdateDTO(
+                item.getId(),
+                item.getOrder().getOrderId(),
+                null, 
+                "Kitchen", 
+                null, 
+                OrderStatus.COMPLETED,
+                item.getProduct().getName(),
+                0.0
+            );
+            
+            sendAfterCommit(messagingTemplate, "/topic/kitchen/orders", update);
+
+            Order parentOrder = orderRepository.findById(item.getOrder().getOrderId())
+                    .orElseThrow(() -> new RuntimeException("Parent order not found during completion check."));
+
+            // Check if all items are complete
+            boolean allOtherItemsComplete = parentOrder.getItems().stream()
+                .filter(orderItem -> !orderItem.getId().equals(orderItemId)) 
+                .allMatch(orderItem -> orderItem.getStatus() == OrderStatus.COMPLETED);
+
+            if (allOtherItemsComplete && parentOrder.getStatus() == OrderStatus.PREPARING) {
+                log.info("All items for Order {} complete. Finishing order.", parentOrder.getOrderId());
+                parentOrder.handleRequest(); // This triggers PreparingState -> CompletedState
+                orderRepository.save(parentOrder);
+                
+                // Notify order completion
+                sendAfterCommit(messagingTemplate, "/topic/kitchen/order-complete", parentOrder.getOrderId());
+            }
+
+            return item;
+        } catch (ObjectOptimisticLockingFailureException e) {
+            log.error("Optimistic Lock Failure on Item {}", orderItemId);
+            throw e; // Re-throw to be handled by Controller
+        }
     }
     
     public List<Order> getActiveOrders() {
@@ -134,6 +152,7 @@ public class OrderService {
                 @Override
                 public void afterCommit() {
                     template.convertAndSend(destination, payload);
+                    log.debug("WS Sent to {} (After Commit)", destination);
                 }
             });
         } else {

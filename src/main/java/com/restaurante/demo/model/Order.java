@@ -18,6 +18,11 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long orderId;
 
+    // Report Section 3.2: Optimistic Locking
+    // Prevents "Lost Updates" in high-concurrency scenarios
+    @Version
+    private Integer version;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     @JsonManagedReference // Resolver loop infinito de items
     private List<OrderItem> items = new ArrayList<>();
@@ -36,7 +41,7 @@ public class Order {
 
     public void setState(OrderState state) {
         this.state = state;
-        // El Status ENUM es el que persiste en la base de datos, sin embargo, utilizamos OrderState para poder establecer estos mismos
+        // El Status ENUM es el que persiste en la base de datos
         if (state instanceof PendingState) {
             this.status = OrderStatus.PENDING;
         } else if (state instanceof PreparingState) {
@@ -45,7 +50,6 @@ public class Order {
             this.status = OrderStatus.COMPLETED;
         }
     }
-    
     
     @PostLoad
     public void initState() {
@@ -60,11 +64,10 @@ public class Order {
 
     public void handleRequest() {
     	if (this.state == null) {
-            initState(); // Re-initialize state just in case.
+            initState();
         }
         this.state.handle(this);
     }
-    
     
     @JsonIgnore
     public double getTotalPrice() {

@@ -4,10 +4,12 @@ import com.restaurante.demo.model.Order;
 import com.restaurante.demo.model.OrderStatus;
 
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
+@Slf4j
 public class KitchenDisplay implements Observer {
 
     private final OrderService orderService;
@@ -26,12 +28,10 @@ public class KitchenDisplay implements Observer {
 
     @Override
     public void update(Order order) {
-        System.out.println("KITCHEN DISPLAY: New/Updated Order Received - ID: " + order.getOrderId());
+        log.info("KITCHEN DISPLAY: New/Updated Order Received - ID: {}", order.getOrderId());
         
         if (order.getStatus() == OrderStatus.PENDING) {
-            
             order.getItems().forEach(item -> orderDispatcher.dispatch(order, item));
-
             orderService.startPreparingOrder(order.getOrderId());
         }
     }

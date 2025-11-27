@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
     <style>
         :root { --pico-font-size: 100%; }
-        .nav-links a { margin-left: 1rem; }
+        .nav-links a { margin-left: 1rem; cursor: pointer; }
         .form-card { background-color: var(--pico-card-background-color); border-radius: var(--pico-card-border-radius); padding: var(--pico-block-spacing-vertical) var(--pico-block-spacing-horizontal); box-shadow: var(--pico-card-box-shadow); }
         .edit-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--pico-muted-border-color); }
     </style>
@@ -22,6 +22,7 @@
             <nav class="nav-links">
                 <a href="/index.html">Home</a>
                 <a href="/admin_products.html">Gestionar Productos</a>
+                <a onclick="logout()" role="button" class="outline contrast" style="padding: 5px 10px;">Logout</a>
             </nav>
         </header>
 
@@ -33,7 +34,6 @@
         </article>
     </main>
 
-    <!-- Modal for editing a chef -->
     <dialog id="modal-edit-chef">
         <article>
             <header>
@@ -73,15 +73,39 @@
         const modal = document.getElementById('modal-edit-chef');
         const editForm = document.getElementById('edit-chef-form');
 
+        // Funcion logout
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                sessionStorage.clear();
+                window.location.href = '/index.html';
+            } catch (e) {
+                console.error("Logout failed", e);
+                window.location.href = '/index.html';
+            }
+        }
+
+        // Helper para redireccionar auth
+        function handleAuthError(response) {
+            if (response.status === 401 || response.status === 403) {
+                alert('Session expired or unauthorized. Redirecting to login.');
+                window.location.href = '/login.html';
+                return true;
+            }
+            return false;
+        }
+
         async function loadChefs() {
             try {
                 const response = await fetch('/api/chefs');
+                if (handleAuthError(response)) return;
+                
                 if (!response.ok) throw new Error('Failed to load chefs');
                 const chefs = await response.json();
                 
                 chefsListContainer.innerHTML = '';
                 if (chefs.length === 0) {
-                    chefsListContainer.innerHTML = '<p>No chefs found. Please register a new chef.</p>';
+                    chefsListContainer.innerHTML = '<p>No se encontro ningun chef.</p>';
                     return;
                 }
                 
@@ -101,7 +125,7 @@
                 });
             } catch (error) {
                 console.error(error);
-                chefsListContainer.innerHTML = '<p style="color:red;">Could not load chefs.</p>';
+                chefsListContainer.innerHTML = '<p style="color:red;">Could not load chefs. (Are you logged in as Admin?)</p>';
             }
         }
         
@@ -139,6 +163,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
+                
+                if (handleAuthError(response)) return;
                 if (!response.ok) throw new Error('Failed to save changes');
                 
                 closeModal();

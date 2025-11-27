@@ -105,10 +105,21 @@
         if (!sessionStorage.getItem('userId')) { window.location.href = '/login.html'; }
         
         function logout() { sessionStorage.clear(); window.location.href = '/index.html'; }
+        
+        // Helper
+        function handleAuthError(response) {
+            if (response.status === 401 || response.status === 403) {
+                alert('Session expired. Please login again.');
+                window.location.href = '/login.html';
+                return true;
+            }
+            return false;
+        }
 
         // Core Functions
         async function loadMenu() {
             try {
+                // Public endpoint, likely won't 401, but good practice
                 const response = await fetch('/api/products'); 
                 if (!response.ok) throw new Error('Failed to load menu');
                 const productsArray = await response.json();
@@ -211,13 +222,15 @@
             const query = new URLSearchParams(itemIds.map(id => ['currentItemIds', id])).toString();
             try {
                 const response = await fetch(`/api/client/recommendations?${query}`);
+                if (handleAuthError(response)) return;
+                
                 if (!response.ok) throw new Error("API responded with an error");
                 const recs = await response.json();
                 
                 if (recs && recs.length > 0) {
                     recommendationsGrid.innerHTML = '';
                     recs.forEach(rec => {
-                        // FIX: Ensure product data for recommendations is cached locally
+                        
                         if (!products[rec.id]) {
                             products[rec.id] = rec;
                         }
@@ -237,6 +250,8 @@
             if (!currentOrderId) return;
             try {
                 const response = await fetch(`/api/client/orders/${currentOrderId}/status`);
+                if (handleAuthError(response)) return;
+                
                 if (!response.ok) { 
                     clearInterval(activeOrderCheckInterval); 
                     return; 
@@ -272,6 +287,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(orderData)
                 });
+                
+                if (handleAuthError(response)) return;
                 if (!response.ok) throw new Error(await response.text());
                 
                 const order = await response.json();
@@ -304,7 +321,7 @@
             }, 5000);
         });
 
-        // Use event delegation for "Add to Order" buttons for better performance
+        
         document.addEventListener('click', (event) => {
             if (event.target && event.target.matches('.add-to-order-btn')) {
                 addToOrder(event.target.dataset.productId);

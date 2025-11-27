@@ -48,7 +48,7 @@
 <body>
     <main class="container" style="max-width: 450px;">
         <article class="card">
-            <div class="logo">🍴</div>
+            <div class="logo"></div>
             <h2>Login</h2>
             <form id="login-form">
                 <label for="username">Username</label>
@@ -90,14 +90,16 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Store user info in the session to use on other pages
+                    // Guarda cookie
                     sessionStorage.setItem('userId', data.userId);
                     sessionStorage.setItem('userRole', data.role);
                     sessionStorage.setItem('username', username);
 
-                    // Redirect based on role
+                    // Redireccionar basado en rol
                     if (data.role === 'Chef') {
                         window.location.href = '/kitchen_ui.html';
+                    } else if (data.role === 'Admin') {
+                        window.location.href = '/admin_products.html';
                     } else {
                         window.location.href = '/client_dashboard.html';
                     }

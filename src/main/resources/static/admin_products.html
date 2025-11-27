@@ -20,6 +20,7 @@
             margin-left: 1rem;
             color: #667eea;
             text-decoration: none;
+            cursor: pointer;
         }
         .success-message {
             background: #d4edda;
@@ -52,13 +53,12 @@
             <div class="nav-links">
                 <a href="/index.html">Home</a>
                 <a href="/admin_chefs.html">Manage Chefs</a>
-                <a href="/login.html">Login</a>
+                <a onclick="logout()" role="button" class="outline contrast" style="padding: 5px 10px;">Logout</a>
             </div>
         </div>
         
         <div id="success-message" class="success-message"></div>
 
-        <!-- FORM FOR SIMPLE PRODUCTS -->
         <div class="product-form">
             <h2>Añadir producto simple</h2>
             <form id="add-product-form">
@@ -84,7 +84,6 @@
             </form>
         </div>
 
-        <!-- FORM FOR COMPOSITE PRODUCTS -->
         <div class="product-form form-section">
             <h2>Construir producto compuesto</h2>
             <form id="add-composite-form">
@@ -129,9 +128,32 @@
         const successMessage = document.getElementById('success-message');
         const compositeOptionsContainer = document.getElementById('composite-children-options');
 
+        // Funcion logout
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                sessionStorage.clear();
+                window.location.href = '/index.html';
+            } catch (e) {
+                console.error("Logout failed", e);
+                window.location.href = '/index.html';
+            }
+        }
+
+        function handleAuthError(response) {
+            if (response.status === 401 || response.status === 403) {
+                alert('Session expired or unauthorized. Redirecting to login.');
+                window.location.href = '/login.html';
+                return true;
+            }
+            return false;
+        }
+
         async function loadProducts() {
             try {
                 const response = await fetch('/api/products/all');
+                if (handleAuthError(response)) return;
+                
                 if (!response.ok) throw new Error('Failed to load products');
                 
                 const products = await response.json();
@@ -165,7 +187,7 @@
                 });
             } catch (error) {
                 console.error('Error loading products:', error);
-                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">Error loading products</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">Error loading products (Auth failed?)</td></tr>';
             }
         }
 
@@ -183,6 +205,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
+                
+                if (handleAuthError(response)) return;
+                
                 if (!response.ok) {
                     const errorText = await response.text();
                     throw new Error(`Request failed: ${errorText}`);
@@ -209,7 +234,6 @@
                 price: parseFloat(formData.get('price')),
                 preparationTime: parseFloat(formData.get('preparationTime')),
                 requiredStation: formData.get('requiredStation'),
-                // THIS IS THE FIX: Directly check the 'checked' property of the checkbox element.
                 isVisibleToClient: isVisibleCheckbox.checked 
             };
             await postProductData(data, addForm.querySelector('button'), addForm);
@@ -246,6 +270,7 @@
             if (confirm(`Are you sure you want to delete product #${id}? This cannot be undone.`)) {
                 try {
                     const response = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+                    if (handleAuthError(response)) return;
                     if (!response.ok) throw new Error('Failed to delete product');
                     loadProducts();
                 } catch (error) {
