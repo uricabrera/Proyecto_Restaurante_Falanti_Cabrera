@@ -40,7 +40,6 @@ public class RestaurantController {
     private final UsuarioRepository usuarioRepository;
     private final AuthenticationManager authenticationManager;
     
-    // FIX: Required to persist the session in Spring Security 6
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     @Autowired
@@ -82,7 +81,6 @@ public class RestaurantController {
         return ResponseEntity.ok(productService.getAllProducts());
     }
     
-    // Public endpoint for menu
     @GetMapping("/products")
     public ResponseEntity<List<ProductComponent>> getVisibleProducts() {
         return ResponseEntity.ok(productService.getVisibleProducts());
@@ -155,11 +153,15 @@ public class RestaurantController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Only chefs can complete items.");
             }
             
-            orderService.completeOrderItem(itemId);
+            // Pass the chef ID to service to enforce assignment logic
+            orderService.completeOrderItem(itemId, user.getUserId());
+            
             return ResponseEntity.ok().build();
             
         } catch (ObjectOptimisticLockingFailureException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body("Item was modified by another user. Please refresh.");
+        } catch (SecurityException e) {
+             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
         } catch (Exception e) {
             log.error("Error completing item", e);
             return ResponseEntity.badRequest().body("Error completing item: " + e.getMessage());
@@ -201,21 +203,16 @@ public class RestaurantController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDTO> login(@RequestBody LoginRequestDTO loginRequest, HttpServletRequest request, HttpServletResponse response) {
         try {
-            // 1. Authenticate with AuthenticationManager
             Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
             );
 
-            // 2. Create SecurityContext
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(authentication);
             SecurityContextHolder.setContext(context);
 
-            // 3. CRITICAL FIX: Explicitly save the context to the Session Repository
-            // This ensures the JSESSIONID cookie is associated with this user for future requests
             securityContextRepository.saveContext(context, request, response);
 
-            // 4. Return info
             LoginResponseDTO dto = usuarioService.login(loginRequest.getUsername(), loginRequest.getPassword());
             return ResponseEntity.ok(dto);
             

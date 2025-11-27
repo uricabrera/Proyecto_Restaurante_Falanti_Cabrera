@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
-@Slf4j // Report Section 6.3
+@Slf4j
 public class LeastLoadedChefStrategy implements RoutingStrategy {
 
     private final ChefRepository chefRepository;
@@ -86,15 +86,15 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
             ChefWorkQueue targetQueue = chefQueues.get(bestChef.getUserId());
             targetQueue.addItem(item);
             
-            // Set status to PREPARING as it enters the queue
+            // Set status and PERSIST the assignment
             item.setStatus(OrderStatus.PREPARING);
+            item.setAssignedChef(bestChef);
             
-            log.info(">>> Item '{}' assigned to Chef {}. New Queue Load: {:.2f} mins.",
-                item.getProduct().getName(), bestChef.getUserId(), targetQueue.getTotalEstimatedTimeInMinutes()
+            log.info(">>> Item '{}' assigned to Chef {} ({}). New Queue Load: {:.2f} mins.",
+                item.getProduct().getName(), bestChef.getNombre(), bestChef.getUserId(), targetQueue.getTotalEstimatedTimeInMinutes()
             );
 
-            // WebSocket Notification: Notify Kitchen/Chef immediately
-            // Report Section 4.1: Wrap in TransactionSynchronization to ensure DB is committed before notifying frontend
+            // WebSocket Notification
             ItemStatusUpdateDTO updateDTO = new ItemStatusUpdateDTO(
                 item.getId(),
                 order.getOrderId(),
@@ -113,10 +113,6 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
         }
     }
 
-    /**
-     * Helper method to send WebSocket messages only after the transaction commits.
-     * Report Section 4.1
-     */
     private void sendAfterCommit(SimpMessagingTemplate template, String destination, Object payload) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -127,7 +123,6 @@ public class LeastLoadedChefStrategy implements RoutingStrategy {
                 }
             });
         } else {
-            // If no transaction is active (e.g., unit test), send immediately
             template.convertAndSend(destination, payload);
         }
     }

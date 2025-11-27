@@ -11,18 +11,13 @@ import java.util.List;
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
     /**
-     * THE FINAL FIX: Added the 'DISTINCT' keyword.
-     * When using JOIN FETCH on a collection (a One-to-Many relationship like 'items'),
-     * Hibernate may return duplicate parent entities (Orders) for each child (OrderItem).
-     * The 'DISTINCT' keyword ensures that the final result is a list of unique,
-     * fully initialized Order objects, with all their nested associations correctly loaded.
-     * This prevents the NullPointerException during JSON serialization.
-     *
-     * @return A list of unique and fully initialized Order objects.
+     * Updated Query: Now includes 'LEFT JOIN FETCH i.assignedChef' 
+     * to ensure the UI can display who is working on what.
      */
     @Query("SELECT DISTINCT o FROM Order o " +
            "LEFT JOIN FETCH o.items i " +
            "LEFT JOIN FETCH i.product " +
+           "LEFT JOIN FETCH i.assignedChef " +
            "WHERE o.status <> 'COMPLETED' AND o.status <> 'REVOKED'")
     List<Order> findAllActiveOrdersForKitchen();
 }

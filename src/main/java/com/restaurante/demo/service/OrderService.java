@@ -19,7 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@Slf4j // Report Section 6.3
+@Slf4j
 public class OrderService {
     private final List<Observer> observers = new ArrayList<>();
     private final OrderRepository orderRepository;
@@ -57,12 +57,10 @@ public class OrderService {
         Order savedOrder = orderRepository.save(order);
         log.info("Order placed: {}", savedOrder.getOrderId());
         
-        // Dispatch items immediately
         savedOrder.getItems().forEach(item -> {
             orderDispatcher.dispatch(savedOrder, item);
         });
         
-        // Start preparing state logic
         startPreparingOrder(savedOrder.getOrderId());
 
         notifyObservers(savedOrder);
@@ -79,34 +77,43 @@ public class OrderService {
         Order order = getOrder(orderId);
         if (order.getStatus() == OrderStatus.PENDING) {
             log.debug("Transitioning Order {} to PREPARING", orderId);
-            order.handleRequest(); // This triggers PendingState -> PreparingState
+            order.handleRequest();
             orderRepository.save(order);
         }
     }
 
+    /**
+     * Modified to include security check: Only the assigned chef can complete the item.
+     */
     @Transactional
-    public OrderItem completeOrderItem(Long orderItemId) {
+    public OrderItem completeOrderItem(Long orderItemId, Long requestingChefId) {
         try {
             OrderItem item = orderItemRepository.findById(orderItemId)
                     .orElseThrow(() -> new RuntimeException("OrderItem not found with id: " + orderItemId));
             
+            // --- SECURITY CHECK ---
+            if (item.getAssignedChef() != null && !item.getAssignedChef().getUserId().equals(requestingChefId)) {
+                log.warn("Chef {} attempted to complete item {} assigned to Chef {}", 
+                        requestingChefId, orderItemId, item.getAssignedChef().getUserId());
+                throw new SecurityException("You are not assigned to this item.");
+            }
+            // ----------------------
+
             if (item.getStatus() == OrderStatus.COMPLETED) {
                 log.warn("Item {} already completed. Skipping.", orderItemId);
                 return item;
             }
 
-            // This item is now complete
             item.setStatus(OrderStatus.COMPLETED);
-            orderItemRepository.save(item); // triggers version check
+            orderItemRepository.save(item);
 
-            log.info("Item {} ({}) completed.", item.getId(), item.getProduct().getName());
+            log.info("Item {} ({}) completed by Chef {}", item.getId(), item.getProduct().getName(), requestingChefId);
 
-            // FIX: WebSocket Notification for completion AFTER COMMIT
             ItemStatusUpdateDTO update = new ItemStatusUpdateDTO(
                 item.getId(),
                 item.getOrder().getOrderId(),
-                null, 
-                "Kitchen", 
+                requestingChefId, 
+                item.getAssignedChef() != null ? item.getAssignedChef().getNombre() : "Unknown", 
                 null, 
                 OrderStatus.COMPLETED,
                 item.getProduct().getName(),
@@ -118,34 +125,37 @@ public class OrderService {
             Order parentOrder = orderRepository.findById(item.getOrder().getOrderId())
                     .orElseThrow(() -> new RuntimeException("Parent order not found during completion check."));
 
-            // Check if all items are complete
             boolean allOtherItemsComplete = parentOrder.getItems().stream()
                 .filter(orderItem -> !orderItem.getId().equals(orderItemId)) 
                 .allMatch(orderItem -> orderItem.getStatus() == OrderStatus.COMPLETED);
 
             if (allOtherItemsComplete && parentOrder.getStatus() == OrderStatus.PREPARING) {
                 log.info("All items for Order {} complete. Finishing order.", parentOrder.getOrderId());
-                parentOrder.handleRequest(); // This triggers PreparingState -> CompletedState
+                parentOrder.handleRequest(); 
                 orderRepository.save(parentOrder);
                 
-                // Notify order completion
                 sendAfterCommit(messagingTemplate, "/topic/kitchen/order-complete", parentOrder.getOrderId());
             }
 
             return item;
         } catch (ObjectOptimisticLockingFailureException e) {
             log.error("Optimistic Lock Failure on Item {}", orderItemId);
-            throw e; // Re-throw to be handled by Controller
+            throw e;
         }
+    }
+    
+    // Fallback for simple calls without ID check (if needed internally)
+    @Transactional
+    public OrderItem completeOrderItem(Long orderItemId) {
+        return completeOrderItem(orderItemId, -1L); // Bypass check? Or throw error. 
+        // For safety, let's just delegate to the one above or require ID. 
+        // Given the Controller change, this might not be called from API anymore.
     }
     
     public List<Order> getActiveOrders() {
         return orderRepository.findAllActiveOrdersForKitchen();
     }
     
-    /**
-     * Helper method to send WebSocket messages only after the transaction commits.
-     */
     private void sendAfterCommit(SimpMessagingTemplate template, String destination, Object payload) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

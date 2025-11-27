@@ -51,6 +51,20 @@
         .dot-PENDING, .dot-PREPARING { background-color: var(--preparing-color); }
         .dot-COMPLETED { background-color: var(--completed-color); }
         
+        .assigned-badge {
+            font-size: 0.75rem;
+            background: #e9ecef;
+            color: #495057;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 5px;
+        }
+        .assigned-me {
+            background: #d1e7dd;
+            color: #0f5132;
+            font-weight: bold;
+        }
+        
         .connection-status {
             font-size: 0.8rem;
             margin-left: 1rem;
@@ -82,7 +96,7 @@
         const chefNameEl = document.getElementById('chef-name');
         const connectionStatusEl = document.getElementById('connection-status');
         
-        const CHEF_ID = sessionStorage.getItem('userId');
+        const CHEF_ID = parseInt(sessionStorage.getItem('userId')); // Ensure numeric comparison
         const username = sessionStorage.getItem('username');
         let stompClient = null;
 
@@ -111,25 +125,22 @@
         function connectWebSocket() {
             const socket = new SockJS('/ws-kitchen');
             stompClient = Stomp.over(socket);
-            stompClient.debug = null; // Disable debug logs
+            stompClient.debug = null; 
 
             stompClient.connect({}, function (frame) {
                 connectionStatusEl.textContent = "● Connected (Real-time)";
                 connectionStatusEl.className = "connection-status status-connected";
                 
-                // Subscribe to general kitchen updates
                 stompClient.subscribe('/topic/kitchen/orders', function (message) {
                     console.log("WS Update received");
                     fetchActiveOrders(); 
                 });
 
-                // Subscribe to full order completion events
                 stompClient.subscribe('/topic/kitchen/order-complete', function (message) {
                     console.log("Order Complete received");
                     fetchActiveOrders();
                 });
                 
-                // Initial load
                 fetchActiveOrders();
 
             }, function (error) {
@@ -178,19 +189,34 @@
                         const stationIcon = getStationIcon(requiredStation);
                         const stationName = requiredStation ? requiredStation.replace(/_STATION/,'').replace(/_/, ' ') : 'N/A';
                         
+                        // Parse assigned chef logic
+                        const assignedChef = item.assignedChef;
+                        const isAssignedToMe = assignedChef && assignedChef.userId === CHEF_ID;
+                        const assignedName = assignedChef ? assignedChef.nombre : 'Unassigned';
+                        const assignClass = isAssignedToMe ? 'assigned-badge assigned-me' : 'assigned-badge';
+                        const assignText = isAssignedToMe ? 'YOU' : assignedName;
+
                         const prepTimeDisplay = (typeof item.preparationTime === 'number' && item.preparationTime > 0)
                             ? `<small style="display: block; color: var(--pico-muted-color);">⏳ ${item.preparationTime.toFixed(1)} min</small>`
                             : '';
 
-                        const actionControl = (item.status === 'PENDING' || item.status === 'PREPARING')
-                            ? `<button class="secondary outline small" onclick="completeItem(${item.id}, this)">Finalizar</button>`
-                            : '<span>✔️</span>';
+                        let actionControl = '';
+                        if (item.status === 'PENDING' || item.status === 'PREPARING') {
+                            if (isAssignedToMe) {
+                                actionControl = `<button class="secondary outline small" onclick="completeItem(${item.id}, this)">Finalizar</button>`;
+                            } else {
+                                actionControl = `<button class="secondary outline small" disabled style="opacity:0.5; cursor:not-allowed;">Locked</button>`;
+                            }
+                        } else {
+                            actionControl = '<span>✔️</span>';
+                        }
 
                         return `
                             <li>
                                 <div>
                                     <span class="item-status-dot dot-${item.status}"></span>
                                     <span>${productName} (x${item.quantity})</span>
+                                    <span class="${assignClass}">👤 ${assignText}</span>
                                     <small style="display: block; color: var(--pico-muted-color);">
                                         ${stationIcon} ${stationName}
                                     </small>
@@ -226,7 +252,6 @@
         }
         
         async function completeItem(itemId, btnElement) {
-            // Immediate feedback: Disable the button
             if(btnElement) {
                 btnElement.setAttribute('aria-busy', 'true');
                 btnElement.disabled = true;
@@ -238,21 +263,24 @@
                 
                 if (handleAuthError(response)) return;
 
-                
                 if (response.status === 409) {
                     alert("⚠️ Conflict: This item was already modified by another user. Refreshing view.");
-                    fetchActiveOrders(); // Auto refresh
+                    fetchActiveOrders(); 
                     return;
+                }
+                
+                if (response.status === 403) {
+                     alert("⛔ Access Denied: You are not assigned to this item.");
+                     fetchActiveOrders();
+                     return;
                 }
 
                 if (!response.ok) throw new Error('Server failed to complete item.');
                 
-                // Success! The WebSocket 'afterCommit' event will trigger fetchActiveOrders()
             } catch (error) {
                 console.error('Error completing item:', error);
                 alert('Could not complete the item. ' + error.message);
                 
-                // Revert button state on error
                 if(btnElement) {
                     btnElement.removeAttribute('aria-busy');
                     btnElement.disabled = false;
@@ -261,7 +289,6 @@
             }
         }
 
-        // Start connection
         connectWebSocket();
     </script>
 </body>

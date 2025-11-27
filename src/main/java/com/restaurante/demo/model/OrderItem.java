@@ -28,6 +28,12 @@ public class OrderItem {
     @JoinColumn(name = "product_id")
     private ProductComponent product;
 
+    // --- NEW FIELD: Persistence for Chef Assignment ---
+    @ManyToOne(fetch = FetchType.EAGER) // Eager load for display in UI
+    @JoinColumn(name = "assigned_chef_id")
+    private Chef assignedChef;
+    // -------------------------------------------------
+
     private int quantity;
     
     @Column(name = "item_status")
