@@ -21,7 +21,7 @@ import java.util.List;
 @Service
 @Slf4j
 public class OrderService {
-    private final List<Observer> observers = new ArrayList<>();
+    
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final SimpMessagingTemplate messagingTemplate;
@@ -38,19 +38,7 @@ public class OrderService {
         this.orderDispatcher = orderDispatcher;
     }
 
-    public void register(Observer o) {
-        observers.add(o);
-    }
 
-    public void unregister(Observer o) {
-        observers.remove(o);
-    }
-
-    public void notifyObservers(Order order) {
-        for (Observer observer : observers) {
-            observer.update(order);
-        }
-    }
 
     @Transactional
     public Order placeOrder(Order order) {
@@ -63,7 +51,7 @@ public class OrderService {
         
         startPreparingOrder(savedOrder.getOrderId());
 
-        notifyObservers(savedOrder);
+        
         return savedOrder;
     }
 

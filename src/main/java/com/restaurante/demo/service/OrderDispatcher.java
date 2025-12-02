@@ -1,6 +1,6 @@
 package com.restaurante.demo.service;
 
-import com.restaurante.demo.dto.ChefQueueDTO;
+
 import com.restaurante.demo.model.Chef;
 import com.restaurante.demo.model.Order;
 import com.restaurante.demo.model.OrderItem;
@@ -64,13 +64,5 @@ public class OrderDispatcher {
         return chefQueues.computeIfAbsent(chefId, k -> new ChefWorkQueue());
     }
 
-    public ChefQueueDTO getChefQueueDTO(Long chefId) {
-        ChefWorkQueue queue = chefQueues.get(chefId);
-        if (queue == null) {
-            return new ChefQueueDTO(List.of(), 0.0);
-        }
-        // Return unmodifiable view to protect internal queue state
-        List<OrderItem> currentQueue = queue.getItemQueue().stream().collect(Collectors.toUnmodifiableList());
-        return new ChefQueueDTO(currentQueue, queue.getTotalEstimatedTimeInMinutes());
-    }
+    
 }
